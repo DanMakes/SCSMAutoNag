@@ -1,5 +1,5 @@
 # This is an auto-nag script for SCSM incidents
-# version 1.0
+# version 1.0.1
 
 #Environment Constants
 $SCSMInbox = "mailbox@company.com"
@@ -112,8 +112,8 @@ foreach ($incident in $incidents) {
     $AssignedUserEmail = Get-SCSMRelatedObject -smobject $assignedUser | Where-Object { ($_.ClassName -eq "System.Notification.Endpoint") -and ($_.DisplayName -like "*SMTP") }
     
     # Get the user/analyst action log, sort them based on last modified
-    $actionLog = Get-SCSMRelatedObject -smobject $incident | Where-Object { ($_.ClassName -eq ("System.WorkItem.TroubleTicket.AnalystCommentLog") -or $_.ClassName -eq ("System.WorkItem.TroubleTicket.UserCommentLog")) } | Sort-Object LastModified -desc
-    $MostRecentComment = ($actionlog[0]).comment
+    $MostRecentActionLogEntry = Get-SCSMRelatedObject -smobject $incident | Where-Object { ($_.ClassName -eq ("System.WorkItem.TroubleTicket.AnalystCommentLog") -or $_.ClassName -eq ("System.WorkItem.TroubleTicket.UserCommentLog")) } | Sort-Object LastModified -desc | Select-Object -First 1
+    $MostRecentComment = $MostRecentActionLogEntry.Comment
 
     # Email Properties
     $Subject = "[$($Incident.id)] - $($incident.Title)"
@@ -121,25 +121,25 @@ foreach ($incident in $incidents) {
     $Cc = $AssignedUserEmail.TargetAddress
 
     # First Nag
-    if ((((get-date) - $actionLog[0].LastModified).Days -eq 3) -and ($actionLog[0].ClassName -eq "System.WorkItem.TroubleTicket.AnalystCommentLog")) {
+    if ((((get-date) - $MostRecentActionLogEntry.LastModified).Days -eq 3) -and ($MostRecentActionLogEntry.ClassName -eq "System.WorkItem.TroubleTicket.AnalystCommentLog")) {
         $FirstNagBody = "Hi $($affectedUser.firstname), have you had a chance to look at my previous comment?<br>I'll post it here, just in case you need it:<br><br>$MostRecentComment<br><br>Please reply to this email if you are in need of further assistance.<br><br>Thanks!<br><br>$($assignedUser.FirstName) $($assignedUser.LastName)"
         Send-MailMessage -SmtpServer $SMTPServer -Port $Port -From $SCSMInbox -To $To -Cc $Cc -Subject $Subject -Body $FirstNagBody -BodyAsHtml
     }
     
     # Second Nag
-    if ((((get-date) - $actionLog[0].LastModified).Days -eq 4) -and ($actionLog[0].ClassName -eq "System.WorkItem.TroubleTicket.AnalystCommentLog")) {
+    if ((((get-date) - $MostRecentActionLogEntry.LastModified).Days -eq 4) -and ($MostRecentActionLogEntry.ClassName -eq "System.WorkItem.TroubleTicket.AnalystCommentLog")) {
         $SecondNagBody = "Hello $($affectedUser.firstname), I haven't heard from you since my previous attempt yesterday. I'll make another attempt tomorrow before resolving this incident.<br><br>Here is my most recent comment, sent in yesterday's email as well:<br><br>$MostRecentComment<br><br>Please reply to this email if you are in need of further assistance.<br><br>Thanks!<br><br>$($assignedUser.FirstName) $($assignedUser.LastName)"
         Send-MailMessage -SmtpServer $SMTPServer -Port $Port -From $SCSMInbox -To $To -Cc $Cc -Subject $Subject -Body $SecondNagBody -BodyAsHtml
     }
 
     # Third Nag
-    if ((((get-date) - $actionLog[0].LastModified).Days -eq 5) -and ($actionLog[0].ClassName -eq "System.WorkItem.TroubleTicket.AnalystCommentLog")) {
+    if ((((get-date) - $MostRecentActionLogEntry.LastModified).Days -eq 5) -and ($MostRecentActionLogEntry.ClassName -eq "System.WorkItem.TroubleTicket.AnalystCommentLog")) {
         $ThirdNagBody = "Hi $($affectedUser.firstname), please let me know if you still require assistance with this incident. If there is no response by this time tomorrow, this incident will auto-resolve.<br><br>Here is my most recent comment, sent in the previous two email communications:<br><br>$MostRecentComment<br><br>Please reply to this email if you are in need of further assistance.<br><br>Thanks!<br><br>$($assignedUser.FirstName) $($assignedUser.LastName)"
         Send-MailMessage -SmtpServer $SMTPServer -Port $Port -From $SCSMInbox -To $To -Cc $Cc -Subject $Subject -Body $ThirdNagBody -BodyAsHtml
     }
 
     # Incident Closure
-    if ((((get-date) - $actionLog[0].LastModified).Days -ge 6) -and ($actionLog[0].ClassName -eq "System.WorkItem.TroubleTicket.AnalystCommentLog")) {
+    if ((((get-date) - $MostRecentActionLogEntry.LastModified).Days -eq 6) -and ($MostRecentActionLogEntry.ClassName -eq "System.WorkItem.TroubleTicket.AnalystCommentLog")) {
         Add-ActionLogEntry -WIObject $incident -Action Resolved -Comment $CommentToAdd -EnteredBy $AssignedUser
         Set-SCSMObject -SMObject $incident -PropertyHashtable @{"ResolvedDate" = (Get-Date); "Status" = "IncidentStatusEnum.Resolved$"; "ResolutionCategory" = "Enum.66ea772bb1d74f53a4c9537cf599d67b"; "ResolutionDescription" = $CommentToAdd}
     }
